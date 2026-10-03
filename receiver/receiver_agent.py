@@ -106,8 +106,8 @@ class ReceiverAgent:
             t_sender_email = ticket.sender_email
             t_subject = ticket.subject
             t_body = ticket.body
-            t_is_malicious = ticket.is_malicious
-            t_category = ticket.category
+            t_is_malicious = getattr(ticket, "is_malicious", False) is True
+            t_category = getattr(ticket, "category", "benign")
 
         # ── Phase 2: Run LLM graph — NO DB session held open ──────────────
         user_content = (
