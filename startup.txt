@@ -1,0 +1,25 @@
+first start docker - docker ps
+
+Check AgentShield health - Invoke-RestMethod http://localhost:8000/api/v1/health(cd agentshield\backend
+.\.venv\Scripts\activate
+uvicorn app.main:app --host 127.0.0.1 --port 8000)
+
+Generate 20 tickets with 45% malicious rate
+..\ticket_demo\.venv\Scripts\python ticket_demo\run_demo.py --burst 20 --rate 0.45
+
+Or run a 100-ticket run:
+..\ticket_demo\.venv\Scripts\python ticket_demo\run_demo.py --burst 100 --rate 0.45
+
+Simulates 3 days (with SIMULATED_DAY_SECONDS=30 in .env)
+..\ticket_demo\.venv\Scripts\python ticket_demo\run_demo.py --cycles 3
+
+Terminal 1 — Sender (generates tickets and writes them to Supabase)
+..\ticket_demo\.venv\Scripts\python ticket_demo\sender\sender_agent.py --burst 10 --rate 0.45
+
+Terminal 2 — Receiver (polls pending tickets, queries AgentShield, writes replies)
+..\ticket_demo\.venv\Scripts\python ticket_demo\receiver\receiver_agent.py --cycles 10
+
+heatlt chech - 
+..\ticket_demo\.venv\Scripts\python ticket_demo\scripts\verify_demo.py
+
+Run the Test Suite - ..\ticket_demo\.venv\Scripts\python -m pytest ticket_demo\tests\

@@ -1,0 +1,137 @@
+name: Ticket Demo & AgentShield Security CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      burst_count:
+        description: 'Number of tickets to generate in burst'
+        required: false
+        default: '10'
+      malicious_rate:
+        description: 'Malicious ticket rate (0.0 to 1.0)'
+        required: false
+        default: '0.45'
+
+jobs:
+  test-and-verify:
+    name: Run Unit Tests & Policy Suite
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agentshield
+          POSTGRES_PASSWORD: agentshield
+          POSTGRES_DB: agentshield
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Ticket Demo
+        uses: actions/checkout@v4
+        with:
+          path: ticket_demo
+
+      - name: Checkout AgentShield
+        uses: actions/checkout@v4
+        with:
+          repository: Skanda001/agentshield
+          path: agentshield
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e agentshield/backend/sdk/python_sdk
+          pip install -r agentshield/backend/requirements.txt
+          pip install -r ticket_demo/requirements.txt
+
+      - name: Start AgentShield Gateway
+        working-directory: agentshield/backend
+        env:
+          DATABASE_URL: postgresql+psycopg://agentshield:agentshield@localhost:5433/agentshield
+          REDIS_URL: redis://localhost:6379/0
+          AGENTSHIELD_JWT_SECRET: ci-test-secret-1234567890
+          AGENTSHIELD_ADMIN_API_KEY: ash_ci_admin_key_1234567890
+        run: |
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          # Wait for health check
+          for i in {1..30}; do
+            if curl -s http://localhost:8000/api/v1/health | grep -q "agentshield"; then
+              echo "AgentShield is up and healthy!"
+              break
+            fi
+            echo "Waiting for AgentShield..."
+            sleep 1
+          done
+
+      - name: Provision Agent & Load Policy
+        working-directory: ticket_demo
+        env:
+          AGENTSHIELD_API_URL: http://localhost:8000
+          AGENTSHIELD_ADMIN_API_KEY: ash_ci_admin_key_1234567890
+        run: |
+          # Provision receiver agent
+          PROV_OUT=$(python scripts/provision_agent.py)
+          echo "$PROV_OUT"
+          API_KEY=$(echo "$PROV_OUT" | grep "API Key:" | awk '{print $NF}' | tr -d '\r\n')
+          TENANT_ID=$(echo "$PROV_OUT" | grep "Tenant ID:" | awk '{print $NF}' | tr -d '\r\n')
+          echo "AGENTSHIELD_API_KEY=$API_KEY" >> $GITHUB_ENV
+          echo "TENANT_ID=$TENANT_ID" >> $GITHUB_ENV
+
+          # Load ticket demo policy YAML
+          curl -s -X POST "http://localhost:8000/api/v1/policies/load-yaml?tenant_id=$TENANT_ID&file_path=policies/ticket_demo.yaml" \
+            -H "Content-Type: application/json" -d "{}"
+
+      - name: Run Test Suite (10 unit tests)
+        working-directory: ticket_demo
+        env:
+          AGENTSHIELD_API_URL: http://localhost:8000
+          AGENTSHIELD_API_KEY: ${{ env.AGENTSHIELD_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY || 'gsk_mock_ci_test_key_dummy' }}
+        run: |
+          python -m pytest tests/ -v
+
+      - name: Run Live Demo Burst (Optional when secrets configured)
+        if: env.HAS_SECRETS == 'true'
+        working-directory: ticket_demo
+        env:
+          HAS_SECRETS: ${{ secrets.GROQ_API_KEY != '' && secrets.TICKET_DEMO_DATABASE_URL != '' }}
+          AGENTSHIELD_API_URL: http://localhost:8000
+          AGENTSHIELD_API_KEY: ${{ env.AGENTSHIELD_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SENDER_MODEL: qwen/qwen3.8-27b
+          RECEIVER_MODEL: openai/gpt-oss-120b
+          TICKET_DEMO_DATABASE_URL: ${{ secrets.TICKET_DEMO_DATABASE_URL }}
+          TICKET_DEMO_DATABASE_URL_DIRECT: ${{ secrets.TICKET_DEMO_DATABASE_URL_DIRECT }}
+          BURST: ${{ github.event.inputs.burst_count || '10' }}
+          RATE: ${{ github.event.inputs.malicious_rate || '0.45' }}
+        run: |
+          python run_demo.py --burst $BURST --rate $RATE
+          python scripts/verify_demo.py
