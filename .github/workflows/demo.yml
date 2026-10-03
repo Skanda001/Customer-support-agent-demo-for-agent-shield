@@ -77,9 +77,12 @@ jobs:
         env:
           DATABASE_URL: postgresql+psycopg://agentshield:agentshield@localhost:5433/agentshield
           REDIS_URL: redis://localhost:6379/0
-          AGENTSHIELD_JWT_SECRET: ci-test-secret-1234567890
-          AGENTSHIELD_ADMIN_API_KEY: ash_ci_admin_key_1234567890
+          AGENTSHIELD_JWT_SECRET: dev-only-jwt-secret-at-least-32-chars-long-1234567890
+          AUDIT_HMAC_SECRET: dev-only-audit-secret-at-least-32-chars-long-0987654321
+          API_KEY_HMAC_SECRET: dev-only-apikey-secret-at-least-32-chars-long-1122334455
+          AGENTSHIELD_ADMIN_API_KEY: ash_ci_admin_key_at_least_32_characters_long_123
         run: |
+          alembic upgrade head
           uvicorn app.main:app --host 0.0.0.0 --port 8000 &
           # Wait for health check
           for i in {1..30}; do
@@ -95,7 +98,7 @@ jobs:
         working-directory: ticket_demo
         env:
           AGENTSHIELD_API_URL: http://localhost:8000
-          AGENTSHIELD_ADMIN_API_KEY: ash_ci_admin_key_1234567890
+          AGENTSHIELD_ADMIN_API_KEY: ash_ci_admin_key_at_least_32_characters_long_123
         run: |
           # Provision receiver agent
           PROV_OUT=$(python scripts/provision_agent.py)
@@ -105,8 +108,9 @@ jobs:
           echo "AGENTSHIELD_API_KEY=$API_KEY" >> $GITHUB_ENV
           echo "TENANT_ID=$TENANT_ID" >> $GITHUB_ENV
 
-          # Load ticket demo policy YAML
-          curl -s -X POST "http://localhost:8000/api/v1/policies/load-yaml?tenant_id=$TENANT_ID&file_path=policies/ticket_demo.yaml" \
+          # Load ticket demo policy YAML using absolute path
+          POLICY_PATH="$(pwd)/policies/ticket_demo.yaml"
+          curl -s -X POST "http://localhost:8000/api/v1/policies/load-yaml?tenant_id=$TENANT_ID&file_path=$POLICY_PATH" \
             -H "Content-Type: application/json" -d "{}"
 
       - name: Run Test Suite (10 unit tests)
