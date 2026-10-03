@@ -1,5 +1,7 @@
 # Two-Agent Ticket Demo (AgentShield Security Gateway Integration)
 
+[![Security CI](https://github.com/Skanda001/Customer-support-agent-demo-for-agent-shield/actions/workflows/demo.yml/badge.svg)](https://github.com/Skanda001/Customer-support-agent-demo-for-agent-shield/actions/workflows/demo.yml)
+
 A standalone two-agent email and ticketing system designed to exercise and demonstrate **AgentShield**'s Zero-Trust security gateway.
 
 ---
@@ -9,7 +11,7 @@ A standalone two-agent email and ticketing system designed to exercise and demon
 Autonomous AI agents operating in enterprise environments require strict, fail-closed security guardrails. Without a policy and risk enforcement gateway, prompt injections, privilege escalations, PII leaks, and destructive commands can compromise sensitive backend databases and customer communication channels.
 
 This demo simulates a realistic two-agent e-commerce support lifecycle:
-1. **Agent 1 (Sender Agent)**: Simulates diverse customers by generating support tickets from real database records (customers and orders) using `openai/gpt-oss-20b` via Groq. A configurable fraction of tickets are malicious (prompt injections, PII exfiltration attempts, destructive account deletions, and unauthorized scope escalations).
+1. **Agent 1 (Sender Agent)**: Simulates diverse customers by generating support tickets from real database records (customers and orders) using `qwen/qwen3.8-27b` via Groq. A configurable fraction of tickets are malicious (prompt injections, PII exfiltration attempts, destructive account deletions, and unauthorized scope escalations).
 2. **Agent 2 (Receiver Agent)**: An autonomous support agent using `openai/gpt-oss-120b` built with LangGraph. It inspects incoming tickets and invokes tools to inspect customer profiles, query order records, look up payments, request refunds, and send email replies.
 3. **AgentShield Gateway**: Every single tool call invoked by Agent 2 is routed over HTTP through AgentShield via the `@protect` decorator in the AgentShield Python SDK. AgentShield evaluates policies, calculates deterministic risk scores, detects prompt injections and PII, and returns `ALLOW`, `BLOCK`, or `HITL` (Human-in-the-Loop escalation).
 
