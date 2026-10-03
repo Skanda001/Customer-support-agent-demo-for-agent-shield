@@ -29,6 +29,8 @@ DATABASE_URL_DIRECT = os.getenv(
 connect_args = {
     "statement_cache_size": 0,
     "prepared_statement_cache_size": 0,
+    "command_timeout": 60,
+    "timeout": 60,
 }
 
 engine = create_async_engine(

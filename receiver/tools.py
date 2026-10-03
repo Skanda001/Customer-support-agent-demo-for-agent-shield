@@ -144,7 +144,7 @@ async def request_refund_ticket(order_display_id: int, amount: float, reason: st
 
 
 @tool
-@protect(tool="send_reply_ticket", resource_type="email", data_classification="internal")
+@protect(tool="send_reply_ticket", resource_type="public", data_classification="internal")
 async def send_reply_ticket(subject: str, body: str) -> dict[str, Any]:
     """Send a reply email to the original ticket sender. The reply-to address is
     determined by the system (SENDER_EMAIL env var) and cannot be overridden."""

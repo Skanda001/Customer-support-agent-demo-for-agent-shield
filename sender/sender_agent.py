@@ -141,77 +141,97 @@ class SenderAgent:
     async def generate_single_ticket(self, malicious_rate: float) -> Optional[Ticket]:
         category = get_category(malicious_rate)
         
-        async with async_session_factory() as session:
-            # Pick a customer with at least one order
-            subq = select(Order.customer_id).distinct().subquery()
-            stmt = (
-                select(Customer)
-                .where(Customer.id.in_(select(subq.c.customer_id)))
-                .options(selectinload(Customer.orders))
-                .order_by(func.random())
-                .limit(1)
-            )
-            result = await session.execute(stmt)
-            customer = result.scalar_one_or_none()
-            if not customer or not customer.orders:
-                logger.error("[sender] No eligible customers with orders found in database.")
-                return None
+        # ── Phase 1: Load customer & order (short session with retry) ────
+        customer_data = None
+        order_data = None
+        for attempt in range(3):
+            try:
+                async with async_session_factory() as session:
+                    subq = select(Order.customer_id).distinct().subquery()
+                    stmt = (
+                        select(Customer)
+                        .where(Customer.id.in_(select(subq.c.customer_id)))
+                        .options(selectinload(Customer.orders))
+                        .order_by(func.random())
+                        .limit(1)
+                    )
+                    result = await session.execute(stmt)
+                    customer = result.scalar_one_or_none()
+                    if not customer or not customer.orders:
+                        logger.error("[sender] No eligible customers with orders found in database.")
+                        return None
 
-            order = random.choice(customer.orders)
-            
-            customer_data = {
-                "name": customer.name,
-                "email": customer.email,
-                "account_status": customer.account_status,
-                "phone": customer.phone,
-                "address": customer.address,
-            }
-            order_data = {
-                "display_id": order.display_id,
-                "product": order.product,
-                "price": float(order.price),
-                "status": order.status,
-                "is_return_requested": order.is_return_requested,
-            }
+                    order = random.choice(customer.orders)
+                    customer_data = {
+                        "name": customer.name,
+                        "email": customer.email,
+                        "account_status": customer.account_status,
+                        "phone": customer.phone,
+                        "address": customer.address,
+                    }
+                    order_data = {
+                        "display_id": order.display_id,
+                        "product": order.product,
+                        "price": float(order.price),
+                        "status": order.status,
+                        "is_return_requested": order.is_return_requested,
+                    }
+                    break
+            except Exception as e:
+                logger.warning("[sender] DB fetch attempt %d failed: %s", attempt + 1, e)
+                if attempt < 2:
+                    await asyncio.sleep(1.0)
+                else:
+                    return None
 
-            ticket_content = await self._call_llm_json(customer_data, order_data, category)
-            if not ticket_content:
-                logger.error("[sender] Failed to generate ticket content after retry. Skipping ticket.")
-                return None
+        # ── Phase 2: Call LLM (NO DB connection open) ────────────────────
+        ticket_content = await self._call_llm_json(customer_data, order_data, category)
+        if not ticket_content:
+            logger.error("[sender] Failed to generate ticket content after retry. Skipping ticket.")
+            return None
 
-            is_malicious = category != "benign"
-            if is_malicious:
-                strength = await self._classify_attack_strength(ticket_content["body"])
-            else:
-                strength = "none"
+        is_malicious = category != "benign"
+        if is_malicious:
+            strength = await self._classify_attack_strength(ticket_content["body"])
+        else:
+            strength = "none"
 
-            # Determine next display_id
-            max_id = await session.scalar(select(func.max(Ticket.display_id)))
-            next_display_id = (max_id or 500000) + 1
+        sender_email = os.getenv("SENDER_EMAIL", "skanda.dell@gmail.com")
+        receiver_email = os.getenv("RECEIVER_EMAIL", "agentshield.demo@gmail.com")
 
-            sender_email = os.getenv("SENDER_EMAIL", "skanda.dell@gmail.com")
-            receiver_email = os.getenv("RECEIVER_EMAIL", "agentshield.demo@gmail.com")
+        # ── Phase 3: Insert ticket into DB (short session with retry) ────
+        for attempt in range(3):
+            try:
+                async with async_session_factory() as session:
+                    max_id = await session.scalar(select(func.max(Ticket.display_id)))
+                    next_display_id = (max_id or 500000) + 1
 
-            ticket = Ticket(
-                id=uuid.uuid4(),
-                display_id=next_display_id,
-                sender_email=sender_email,
-                recipient_email=receiver_email,
-                subject=ticket_content["subject"],
-                body=ticket_content["body"],
-                category=category,
-                is_malicious=is_malicious,
-                attack_strength=strength,
-                generated_by="llm",
-                status="pending",
-            )
-            session.add(ticket)
-            await session.commit()
-            await session.refresh(ticket)
+                    ticket = Ticket(
+                        id=uuid.uuid4(),
+                        display_id=next_display_id,
+                        sender_email=sender_email,
+                        recipient_email=receiver_email,
+                        subject=ticket_content["subject"],
+                        body=ticket_content["body"],
+                        category=category,
+                        is_malicious=is_malicious,
+                        attack_strength=strength,
+                        generated_by="llm",
+                        status="pending",
+                    )
+                    session.add(ticket)
+                    await session.commit()
 
-            # Log line per ticket as specified: [sender] #<display_id> [<category>/<strength>] <subject>
-            print(f"[sender] #{ticket.display_id} [{ticket.category}/{ticket.attack_strength}] {ticket.subject}")
-            return ticket
+                    # Log line per ticket as specified: [sender] #<display_id> [<category>/<strength>] <subject>
+                    print(f"[sender] #{ticket.display_id} [{ticket.category}/{ticket.attack_strength}] {ticket.subject}")
+                    return ticket
+            except Exception as e:
+                logger.warning("[sender] DB insert attempt %d failed: %s", attempt + 1, e)
+                if attempt < 2:
+                    await asyncio.sleep(1.0)
+                else:
+                    return None
+
 
 
 async def run_sender(

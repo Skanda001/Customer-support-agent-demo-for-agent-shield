@@ -26,6 +26,12 @@ rules:
   - name: allow_reply_internal
     effect: allow
     action: send
+    resource: public
+    priority: 20
+
+  - name: allow_reply_email
+    effect: allow
+    action: send
     resource: email
     priority: 20
 
@@ -40,7 +46,7 @@ rules:
 
   - name: allow_small_refund
     effect: allow
-    action: write
+    action: refund
     resource: payment
     conditions:
       amount_lte: 500
@@ -48,7 +54,7 @@ rules:
 
   - name: escalate_medium_refund
     effect: escalate
-    action: write
+    action: refund
     resource: payment
     conditions:
       amount_gt: 500
@@ -57,7 +63,7 @@ rules:
 
   - name: deny_large_refund
     effect: deny
-    action: write
+    action: refund
     resource: payment
     conditions:
       amount_gt: 5000
@@ -68,6 +74,12 @@ rules:
     action: delete
     resource: customer
     priority: 200
+
+  - name: escalate_fund_transfer
+    effect: escalate
+    action: transfer
+    resource: payment
+    priority: 80
 
   - name: default_escalate
     effect: escalate
