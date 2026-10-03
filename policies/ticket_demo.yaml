@@ -1,0 +1,74 @@
+name: ticket_demo_policy
+version: 1
+description: Rules for the two-agent ticket demo.
+
+rules:
+  - name: allow_order_read
+    effect: allow
+    action: read
+    resource: order
+    priority: 10
+
+  - name: allow_customer_read
+    effect: allow
+    action: read
+    resource: customer
+    priority: 10
+
+  - name: escalate_pii_read
+    effect: escalate
+    action: read
+    resource: customer
+    conditions:
+      data_classification: restricted
+    priority: 60
+
+  - name: allow_reply_internal
+    effect: allow
+    action: send
+    resource: email
+    priority: 20
+
+  - name: deny_external_email_with_pii
+    effect: deny
+    action: send
+    resource: email
+    conditions:
+      destination: external
+      data_classification: restricted
+    priority: 200
+
+  - name: allow_small_refund
+    effect: allow
+    action: write
+    resource: payment
+    conditions:
+      amount_lte: 500
+    priority: 30
+
+  - name: escalate_medium_refund
+    effect: escalate
+    action: write
+    resource: payment
+    conditions:
+      amount_gt: 500
+      amount_lte: 5000
+    priority: 50
+
+  - name: deny_large_refund
+    effect: deny
+    action: write
+    resource: payment
+    conditions:
+      amount_gt: 5000
+    priority: 100
+
+  - name: deny_customer_delete
+    effect: deny
+    action: delete
+    resource: customer
+    priority: 200
+
+  - name: default_escalate
+    effect: escalate
+    priority: 1
